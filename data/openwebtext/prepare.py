@@ -18,13 +18,23 @@ num_proc_load_dataset = num_proc
 
 enc = tiktoken.get_encoding("gpt2")
 
+CACHE_DIR = '/root/autodl-tmp/'
+
+PERCENT = 10.0
+START_FROM = 0.0
+
 if __name__ == '__main__':
     # takes 54GB in huggingface .cache dir, about 8M documents (8,013,769)
-    dataset = load_dataset("openwebtext", num_proc=num_proc_load_dataset)
+    dataset = load_dataset("openwebtext", num_proc=num_proc_load_dataset, cache_dir = CACHE_DIR)
+    
 
     # owt by default only contains the 'train' split, so create a test split
-    split_dataset = dataset["train"].train_test_split(test_size=0.0005, seed=2357, shuffle=True)
+    split_dataset = dataset["train"].train_test_split(test_size=0.01, seed=114, shuffle=True)
     split_dataset['val'] = split_dataset.pop('test') # rename the test split to val
+
+    start_from = int((START_FROM+PERCENT) / 100.0 * len(split_dataset['train']))
+    num_train_samples = int(PERCENT / 100.0 * len(split_dataset['train']))
+    split_dataset['train'] = split_dataset['train'].select(range(start_from,start_from+num_train_samples))
 
     # this results in:
     # >>> split_dataset
@@ -58,7 +68,7 @@ if __name__ == '__main__':
     # concatenate all the ids in each dataset into one large file we can use for training
     for split, dset in tokenized.items():
         arr_len = np.sum(dset['len'], dtype=np.uint64)
-        filename = os.path.join(os.path.dirname(__file__), f'{split}.bin')
+        filename = os.path.join(os.path.dirname(__file__), f'{split}_P{PERCENT}_SFrom{START_FROM}.bin')
         dtype = np.uint16 # (can do since enc.max_token_value == 50256 is < 2**16)
         arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(arr_len,))
         total_batches = 1024
@@ -73,9 +83,6 @@ if __name__ == '__main__':
             idx += len(arr_batch)
         arr.flush()
 
-    # train.bin is ~17GB, val.bin ~8.5MB
-    # train has ~9B tokens (9,035,582,198)
-    # val has ~4M tokens (4,434,897)
 
     # to read the bin files later, e.g. with numpy:
     # m = np.memmap('train.bin', dtype=np.uint16, mode='r')
